@@ -159,7 +159,7 @@ print(descriptions[descriptions['Description'].str.contains("ERROR: Failed", na=
 #%%
 # 1.3. Vectorization
 
-# Apply TfidfVectorizer in order to vectorize jobs into a comparable format with the students dataset
+# Apply TfidfVectorizer in order to apply PCA analysis
 vectorizer = TfidfVectorizer()
 vec_jobs_skills = vectorizer.fit_transform(jobs_grouped['Skill Vec'])
 print(vec_jobs_skills.shape)
@@ -281,7 +281,7 @@ def print_top_terms_kmeans(kmeans_model, vectorizer, n_terms=10):
 
 print_top_terms_kmeans(kmeans_model=clustered_jobs_30_bis,vectorizer=vectorizer)
 
-# Map clusters with their respective domain of interests. Domains are genrated via chat GPT based on terms for each cluster.
+# Map clusters with their respective domain of interests. Domains are generated via chat GPT based on terms for each cluster.
 domains = {
     0: "Environmental Compliance",
     1: "Construction",
@@ -315,19 +315,20 @@ domains = {
     29: "Logistics and Supply Chain"
 }
 
+# Generated domains are mapped with their respective clusters
 jobs_grouped['Domain of Interest'] = jobs_grouped['Cluster K-30_Bis'].map(domains)
 print(jobs_grouped[['Occupation','Domain of Interest']].head(20))
 print(jobs_grouped[['Occupation','Domain of Interest']].tail(20))
 
 """
-Note: commenting out this code snippet in order to not overwrited the stored file at ech compilation
+Note: commenting out this code snippet in order to not overwrite the stored file at each compilation
 
 #Filter out and export jobs having the "Agriculture and Animal Husbandry" label as this cluster seems to imbalanced
 imbalanced_cluster= jobs_grouped[jobs_grouped['Domain of Interest'] == 'Agriculture and Animal Husbandry']
 imbalanced_cluster.to_csv("../datasets/misclassified_jobs.csv", index=False, quoting=1, encoding='utf-8')
 print('Exported')
 """
-#%%
+
 #Reimport file after jobs having the "Agriculture and Animal Husbandry"  have been manually relabeled
 relabeled_cluster=pd.read_csv("../datasets/Reclassified_jobs.csv")
 print(relabeled_cluster.shape)
@@ -337,7 +338,6 @@ print(relabeled_cluster['Domain of Interest'].nunique())
 #Remove previously mislabeled jobs and concatenate newly created dataset
 filtered_jobs = jobs_grouped[jobs_grouped['Domain of Interest'] != 'Agriculture and Animal Husbandry']
 updated_jobs_grouped = pd.concat([filtered_jobs, relabeled_cluster], ignore_index=True)
-
 print(updated_jobs_grouped.shape)
 print(updated_jobs_grouped['Domain of Interest'].value_counts())
 print(updated_jobs_grouped['Domain of Interest'].nunique())
@@ -345,6 +345,13 @@ print(updated_jobs_grouped['Domain of Interest'].nunique())
 # Concatenate skills and area of interest for second vectorization
 updated_jobs_grouped["Skill and Domain"] = updated_jobs_grouped["Skill Vec"] + " " + updated_jobs_grouped["Domain of Interest"]
 print(updated_jobs_grouped['Skill and Domain'].head())
+
+"""
+Note: commenting out this code snippet in order to not overwrite the stored file at each compilation
+
+#Export updated_jobs_grouped for usage in the Streamlit script. 
+updated_jobs_grouped.to_csv("../datasets/updated_jobs_grouped.csv", index=False,encoding='utf-8')
+"""
 
 # Second vectorization including skills and domains of interest
 vectorizer2 = TfidfVectorizer() 
@@ -355,82 +362,45 @@ print(vec_jobs_skills_domains.shape)
 # 2. Student Profiles
 # 2.1. Data Setup
 
-#Extract list of unique skills and domain of interest to compute the student profiles dataset
+#Extracting unique skills and domains to compute student profiles
+ESCO=pd.ExcelFile(r"..\datasets\Merged Jobs.xlsx")
 skills_tab=pd.read_excel(ESCO, 'Merged Table')
 student_skills=skills_tab['skills_en.preferredLabel'].unique()
 student_domains=updated_jobs_grouped['Domain of Interest'].unique()
-
 print(student_skills[0:5])
 print(student_domains[0:5])
 print(student_skills.size)
 print(student_domains.size)
 
-#Compute student profiles dataset by randomly selecting skills and domains of interest 
-np.random.seed(10)
-num_profiles = 20000
-
+#Compute student profiles dataset by randomly selecting skills and domains of interest. Those profiles will serve as test profiles later on. 
 def create_profiles():
     skills = np.random.choice(student_skills, 5, replace=False)
     skill_vec = ' '.join(skill.replace(' ', '').lower() for skill in skills)
     domain = np.random.choice(student_domains)
     return {'Skill Vec': skill_vec, 'Domain of Interest': domain}
 
-student_profiles = [create_profiles() for _ in range(num_profiles)]
+student_profiles = [create_profiles() for _ in range(20000)]
 students = pd.DataFrame(student_profiles)
 
 print(students.head())
 print(students.shape)
 print(students['Skill Vec'].nunique())
 
+"""
+Note: commenting out this code snippet in order to not overwrite the stored file at each compilation
+
+#Export updated_jobs_grouped for usage in the Streamlit script. Commenting out once code has run
+students.to_csv("../datasets/students.csv", index=False,encoding='utf-8')
+"""
+
 # 2.2. Vectorization
 
-# Apply TfidfVectorizer in order to vectorize students dataset
-vectorizer3 = TfidfVectorizer()
-vec_students_skills = vectorizer3.fit_transform(students['Skill Vec'])
-print(vec_students_skills.shape)
-
-# Concatenate skills and area of interest for second vectorization
+# Concatenate skills and area of interest
 students["Skill and Domain"] = students["Skill Vec"] + " " + students["Domain of Interest"]
 print(students['Skill and Domain'].head())
 
-# Second vectorization including skills and domains of interest
-vectorizer4 = TfidfVectorizer() 
-vec_students_skills_domains = vectorizer4.fit_transform(students['Skill and Domain'])
+# Vectorize student profiles including skills and domains of interest, to make them comparable with job profile vectors
+vectorizer3 = TfidfVectorizer() 
+vec_students_skills_domains = vectorizer3.fit_transform(students['Skill and Domain'])
 print(vec_students_skills_domains.shape)
-
-# 3. Recommender System
-
-# 3.1. Cosine Similarity
-
-#Vectorize jobs and students in the same feature space and commpute similarity matrix
-vectorizer_final = TfidfVectorizer()
-vec_jobs_skills = vectorizer_final.fit_transform(updated_jobs_grouped['Skill Vec'])
-vec_students_skills = vectorizer_final.transform(students['Skill Vec'])
-
-similarity_matrix = cosine_similarity(vec_students_skills, vec_jobs_skills)
-print(similarity_matrix.shape)
-
-# 3.2. Recommendation
-
-top_matches = np.argsort(-similarity_matrix, axis=1)[:, :3]
-
-random_profiles = np.random.choice(len(students), 10, replace=False)
-
-for profile in random_profiles:
-    student_skills = students.iloc[profile]['Skill Vec'].split(",")[:5]
-    top_job_indices = top_matches[profile]
-    
-    print("Skills:", ", ".join(skill.strip() for skill in student_skills)) # Leave this one out if skills can not be printed correctly
-    print("Suggested Jobs:")
-
-    for i, job_index in enumerate(top_job_indices):
-        job_row = updated_jobs_grouped.iloc[job_index]
-        job_title = job_row['Occupation']
-        job_description = job_row.get('Description')
-        similarity_score = (similarity_matrix[profile][job_index])*100
-
-        print(f"\n {i+1}. {job_title}")
-        print(f"Matching Score: {similarity_score:.0f} %")
-        print(f"Career Description: {job_description}")
-
 
